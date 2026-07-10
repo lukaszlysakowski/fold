@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fold</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:           #0d0c0a;
+            --sidebar:      #141310;
+            --surface:      #1c1b18;
+            --surface-hi:   #232118;
+            --border:       #2a2824;
+            --text:         #c4bdb1;
+            --muted:        #969082;
+            --dim:          #282622;
+            --accent:       #c8a470;
+            --accent-lo:    #8a7050;
+            --font:         'JetBrains Mono', 'Courier New', monospace;
+        }
+
+        html, body {
+            height: 100%;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 11px;
+            overflow: hidden;
+        }
+
+        /* ── LAYOUT ─────────────────────────────── */
+
+        .app {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* ── SIDEBAR ────────────────────────────── */
+
+        .sidebar {
+            width: 236px;
+            flex-shrink: 0;
+            background: var(--sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-head {
+            padding: 18px 16px 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--accent);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+
+        .sidebar-sub {
+            font-size: 9px;
+            color: var(--muted);
+            letter-spacing: 0.08em;
+        }
+
+        .sidebar-body {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .sidebar-body::-webkit-scrollbar { width: 2px; }
+        .sidebar-body::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-body::-webkit-scrollbar-thumb { background: var(--dim); }
+
+        .sidebar-footer {
+            border-top: 1px solid var(--border);
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        /* ── SECTIONS ───────────────────────────── */
+
+        .section { padding: 10px 0 4px; }
+
+        .section-label {
+            padding: 0 16px 6px;
+            font-size: 8px;
+            font-weight: 500;
+            letter-spacing: 0.16em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+
+        /* ── CONTROL ROWS ───────────────────────── */
+
+        .ctrl {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            min-height: 24px;
+            padding: 5px 16px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-family: var(--font);
+            color: var(--text);
+            gap: 8px;
+            text-align: left;
+            transition: background 0.1s;
+            outline: none;
+        }
+
+        .ctrl:hover { background: var(--surface); }
+        .ctrl:active { background: var(--surface-hi); }
+
+        .ctrl-name {
+            flex: 1;
+            font-size: 10px;
+            color: var(--muted);
+            letter-spacing: 0.01em;
+        }
+
+        .ctrl-val {
+            font-size: 10px;
+            color: var(--text);
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        /* Active state — accent value text */
+        .ctrl.on .ctrl-val,
+        .ctrl[data-active="true"] .ctrl-val { color: var(--accent); }
+
+        /* ── RULE ───────────────────────────────── */
+
+        .rule {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 16px;
+        }
+
+        /* ── ACTION BUTTONS ─────────────────────── */
+
+        .act-row {
+            display: flex;
+            gap: 5px;
+        }
+
+        .act {
+            flex: 1;
+            padding: 6px 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--muted);
+            font-family: var(--font);
+            font-size: 9px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.12s;
+            outline: none;
+        }
+
+        a.act { text-decoration: none; }
+
+        .act:hover {
+            border-color: var(--accent-lo);
+            color: var(--text);
+            background: var(--surface-hi);
+        }
+
+        .act.primary {
+            border-color: var(--accent-lo);
+            color: var(--accent);
+        }
+
+        .act.primary:hover {
+            border-color: var(--accent);
+            background: var(--surface-hi);
+        }
+
+        /* ── STAGE ──────────────────────────────── */
+
+        .stage {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg);
+            padding: 24px;
+            overflow: hidden;
+        }
+
+        #canvas-container { background-color: #F7E6D4; }
+        #canvas-container canvas { max-height: 92vh; max-width: 100%; width: auto !important; height: auto !important; }
+    </style>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="sidebar-head">
+            <div class="sidebar-title">Fold</div>
+            <div class="sidebar-sub">sheet · crease · occlusion</div>
+        </div>
+        <div class="sidebar-body" id="controls">
+        </div>
+        <div class="sidebar-footer">
+            <div class="act-row">
+                <button class="act primary" id="randomizeBtn">randomize</button>
+                <button class="act" id="refreshBtn">refresh</button>
+            </div>
+            <div class="act-row">
+                <button class="act" id="svgBtn">svg</button>
+                <button class="act" id="pngBtn">png</button>
+                <button class="act" id="png4xBtn">png 4x</button>
+            </div>
+        </div>
+    </aside>
+    <main class="stage"><div id="canvas-container"></div></main>
+</div>
+<script src="p5.min.js"></script>
+<script src="index.js"></script>
+</body>
+</html>
