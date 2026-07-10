@@ -161,6 +161,93 @@ function buildMesh() {
     state.creasePolyline = pts;
 }
 
+// ─── visibility ─── sampled depth grid + bisection: the one approximation.
+
+function gridIndex(x, y) {
+    const span = CS - 2 * PAD;
+    const gx = Math.min(DEPTH_RES - 1, Math.max(0, Math.floor((x - PAD) / span * DEPTH_RES)));
+    const gy = Math.min(DEPTH_RES - 1, Math.max(0, Math.floor((y - PAD) / span * DEPTH_RES)));
+    return gy * DEPTH_RES + gx;
+}
+
+function rasterTriangle(grid, p1, p2, p3) {
+    const span = CS - 2 * PAD, cell = span / DEPTH_RES;
+    const minX = Math.min(p1.px, p2.px, p3.px), maxX = Math.max(p1.px, p2.px, p3.px);
+    const minY = Math.min(p1.py, p2.py, p3.py), maxY = Math.max(p1.py, p2.py, p3.py);
+    const gx0 = Math.max(0, Math.floor((minX - PAD) / cell)), gx1 = Math.min(DEPTH_RES - 1, Math.ceil((maxX - PAD) / cell));
+    const gy0 = Math.max(0, Math.floor((minY - PAD) / cell)), gy1 = Math.min(DEPTH_RES - 1, Math.ceil((maxY - PAD) / cell));
+    const det = (p2.py - p3.py) * (p1.px - p3.px) + (p3.px - p2.px) * (p1.py - p3.py);
+    if (det === 0) return;
+    for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+        const x = PAD + (gx + 0.5) * cell, y = PAD + (gy + 0.5) * cell;
+        const l1 = ((p2.py - p3.py) * (x - p3.px) + (p3.px - p2.px) * (y - p3.py)) / det;
+        const l2 = ((p3.py - p1.py) * (x - p3.px) + (p1.px - p3.px) * (y - p3.py)) / det;
+        const l3 = 1 - l1 - l2;
+        if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
+        const d = l1 * p1.depth + l2 * p2.depth + l3 * p3.depth;
+        const i = gy * DEPTH_RES + gx;
+        if (d < grid[i]) grid[i] = d;
+    }
+}
+
+function buildDepthGrid() {
+    const grid = new Float64Array(DEPTH_RES * DEPTH_RES).fill(Infinity);
+    const V = state.mesh.verts;
+    for (const f of state.mesh.facets) {
+        const p00 = V[f.i00], p10 = V[f.i10], p11 = V[f.i11], p01 = V[f.i01];
+        rasterTriangle(grid, p00, p10, p11);
+        rasterTriangle(grid, p00, p11, p01);
+    }
+    state.depthGrid = grid;
+}
+
+function DEPTH_BIAS() { return DEPTH_BIAS_K * SHEET_W / state.mesh.res; }
+
+function visibleAt(x, y, depth) {
+    return depth <= state.depthGrid[gridIndex(x, y)] + DEPTH_BIAS();
+}
+
+function depthOnFacet(facet, x, y) {
+    const p00 = state.mesh.verts[facet.i00];
+    return p00.depth + facet.grad.a * (x - p00.px) + facet.grad.b * (y - p00.py);
+}
+
+function visibilityClip(seg) {
+    const len = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
+    const n = Math.max(1, Math.ceil(len / 4));                       // ~4 page-px steps
+    const at = t => ({ x: seg.x1 + (seg.x2 - seg.x1) * t,
+                       y: seg.y1 + (seg.y2 - seg.y1) * t,
+                       d: seg.d1 + (seg.d2 - seg.d1) * t });
+    const vis = [];
+    for (let i = 0; i <= n; i++) { const p = at(i / n); vis.push(visibleAt(p.x, p.y, p.d)); }
+    // bisect a visible↔hidden flip between params [ta, tb]; returns transition t
+    function bisect(ta, tb, aVis) {
+        for (let k = 0; k < 7; k++) {
+            const tm = (ta + tb) / 2, p = at(tm);
+            if (visibleAt(p.x, p.y, p.d) === aVis) ta = tm; else tb = tm;
+        }
+        return (ta + tb) / 2;
+    }
+    const out = [];
+    let runStart = null;
+    for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        if (vis[i] && runStart === null) {
+            runStart = i === 0 ? 0 : bisect((i - 1) / n, t, false);
+        } else if (!vis[i] && runStart !== null) {
+            const tEnd = bisect((i - 1) / n, t, true);
+            const a = at(runStart), b = at(tEnd);
+            out.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+            runStart = null;
+        }
+    }
+    if (runStart !== null) {
+        const a = at(runStart), b = at(1);
+        out.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    }
+    return out;
+}
+
 function setup() {
     let c = createCanvas(CS, CS);
     c.parent('canvas-container');
@@ -178,7 +265,8 @@ function regenerate(newSeed) {
     state.passes = emptyPasses();
     state.folds = rollFolds(); state.camera = rollCamera(); state.sharpest = pickSharpest(state.folds);
     buildMesh();
-    // Task 4: depth grid; Task 5: emitPasses.
+    buildDepthGrid();
+    // Task 5: emitPasses.
     renderAll();
 }
 
