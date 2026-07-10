@@ -78,6 +78,89 @@ function pickSharpest(folds) {
     return { fold: f, c: base };
 }
 
+// ─── mesh & projection ─── orthographic; depth = smaller-is-nearer.
+
+function projectPoint(camera, x, y, z) {
+    const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
+    const xr = x * cy - y * sy, yr = x * sy + y * cy, zr = z;
+    const a = Math.PI / 2 - camera.pitch;            // tilt from straight-down
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const y2 = yr * ca - zr * sa;
+    const z2 = yr * sa + zr * ca;                    // toward camera = larger
+    return { px: xr, py: -y2, depth: -z2 };
+}
+
+function fitPoint(fit, px, py) {
+    return { x: fit.cx + px * fit.scale, y: fit.cy + py * fit.scale };
+}
+
+function buildMesh() {
+    const res = MESH_RES[ui.mesh];
+    const cam = state.camera;
+    // 1) project all raw vertices
+    const raw = [];
+    for (let v = 0; v <= res; v++) {
+        for (let u = 0; u <= res; u++) {
+            const x = (u / res - 0.5) * SHEET_W;
+            const y = (v / res - 0.5) * SHEET_H;
+            raw.push(projectPoint(cam, x, y, foldZ(state.folds, x, y)));
+        }
+    }
+    // 2) fit to page: bbox → uniform scale + center, 60px inner breathing room
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of raw) {
+        if (p.px < minX) minX = p.px; if (p.px > maxX) maxX = p.px;
+        if (p.py < minY) minY = p.py; if (p.py > maxY) maxY = p.py;
+    }
+    const avail = CS - 2 * PAD - 2 * 60;
+    const scale = Math.min(avail / (maxX - minX), avail / (maxY - minY));
+    const fit = { scale,
+        cx: CS / 2 - scale * (minX + maxX) / 2,
+        cy: CS / 2 - scale * (minY + maxY) / 2 };
+    cam.fit = fit;
+    // 3) page-space vertices (depth kept in world units)
+    const N = res + 1;
+    const verts = raw.map(p => { const q = fitPoint(fit, p.px, p.py); return { px: q.x, py: q.y, depth: p.depth }; });
+    // 4) iso-lines: index paths along u and along v
+    const isoU = [], isoV = [];
+    for (let v = 0; v <= res; v++) isoU.push(Array.from({ length: N }, (_, u) => v * N + u));
+    for (let u = 0; u <= res; u++) isoV.push(Array.from({ length: N }, (_, v) => v * N + u));
+    // 5) facets with camera-space normal + depth gradient (plane fit on first triangle)
+    const facets = [];
+    for (let v = 0; v < res; v++) for (let u = 0; u < res; u++) {
+        const i00 = v * N + u, i10 = i00 + 1, i01 = i00 + N, i11 = i01 + 1;
+        const p00 = verts[i00], p10 = verts[i10], p01 = verts[i01], p11 = verts[i11];
+        // depth-plane d = a*px + b*py + c from (p00, p10, p01)
+        const ux = p10.px - p00.px, uy = p10.py - p00.py, ud = p10.depth - p00.depth;
+        const vx = p01.px - p00.px, vy = p01.py - p00.py, vd = p01.depth - p00.depth;
+        const det = ux * vy - uy * vx;
+        const a = det !== 0 ? (ud * vy - uy * vd) / det : 0;
+        const b = det !== 0 ? (ux * vd - ud * vx) / det : 0;
+        // camera-space normal of the (px, py, depth) surface: (-a, -b, 1) normalized
+        const nl = Math.hypot(a, b, 1);
+        facets.push({ i00, i10, i11, i01,
+            meanDepth: (p00.depth + p10.depth + p01.depth + p11.depth) / 4,
+            normal: { x: -a / nl, y: -b / nl, z: 1 / nl },
+            grad: { a, b } });
+    }
+    state.mesh = { res, verts, isoU, isoV, facets };
+    // 6) crease polyline: the line t = c across the sheet, sampled res+1 times
+    const f = state.sharpest.fold, c = state.sharpest.c;
+    const dirX = -Math.sin(f.theta), dirY = Math.cos(f.theta);
+    const baseX = c * Math.cos(f.theta), baseY = c * Math.sin(f.theta);
+    const L = Math.hypot(SHEET_W, SHEET_H) / 2;
+    const pts = [];
+    for (let i = 0; i <= res; i++) {
+        const s = (i / res - 0.5) * 2 * L;
+        const x = baseX + s * dirX, y = baseY + s * dirY;
+        if (Math.abs(x) > SHEET_W / 2 || Math.abs(y) > SHEET_H / 2) continue;
+        const p = projectPoint(cam, x, y, foldZ(state.folds, x, y));
+        const q = fitPoint(fit, p.px, p.py);
+        pts.push({ x: q.x, y: q.y, depth: p.depth });
+    }
+    state.creasePolyline = pts;
+}
+
 function setup() {
     let c = createCanvas(CS, CS);
     c.parent('canvas-container');
@@ -94,7 +177,8 @@ function regenerate(newSeed) {
     noiseSeed(state.masterSeed);
     state.passes = emptyPasses();
     state.folds = rollFolds(); state.camera = rollCamera(); state.sharpest = pickSharpest(state.folds);
-    // Task 3: buildMesh/project; Task 4: depth grid; Task 5: emitPasses.
+    buildMesh();
+    // Task 4: depth grid; Task 5: emitPasses.
     renderAll();
 }
 
