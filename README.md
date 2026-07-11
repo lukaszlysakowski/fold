@@ -2,6 +2,8 @@
 
 **Sheet · crease · occlusion** — a folded page floating in empty space, drawn with true hidden-line removal.
 
+**[Live demo →](https://lukaszlysakowski.github.io/fold/)**
+
 ---
 
 ## Origin
@@ -77,7 +79,7 @@ Files are named `fold_<seed>.svg` / `.png`. The **png 4x** button renders the co
 | [second-reading](https://github.com/lukaszlysakowski/second-reading) | Sidebar/export pattern (`exportPNG`, cycling controls) carried forward into this piece's UI |
 | [palimpsest](https://github.com/lukaszlysakowski/palimpsest), [field-script](https://github.com/lukaszlysakowski/field-script) | Family members sharing this project's accessibility floor and generative lineage |
 
-Fold is a local project — not yet published to a public repository.
+**[Live maker →](https://lukaszlysakowski.github.io/fold/)** · source at [github.com/lukaszlysakowski/fold](https://github.com/lukaszlysakowski/fold).
 
 ---
 
