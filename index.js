@@ -266,13 +266,15 @@ function regenerate(newSeed) {
     state.folds = rollFolds(); state.camera = rollCamera(); state.sharpest = pickSharpest(state.folds);
     buildMesh();
     buildDepthGrid();
-    // Task 5: emitPasses.
+    emitPasses();
     renderAll();
 }
 
 function renderAll() {
     background(PAPER);
-    // Task 5 adds pass drawing here.
+    for (const s of state.passes.hatch)  drawSegment(s, 0.45, INK);
+    for (const s of state.passes.mesh)   drawSegment(s, 0.7, INK);
+    for (const s of state.passes.crease) drawSegment(s, 1.0, RED);
     drawBorderAndSignature();
 }
 
@@ -291,4 +293,171 @@ function drawBorderAndSignature() {
 function mousePressed(e) {
     if (e && e.target && e.target.tagName !== 'CANVAS') return;
     regenerate(true);
+}
+
+// ─── fill kit (from core-samples) ───
+
+function getBounds(vertices) {
+  let minX = Math.min(...vertices.map(v => v.x));
+  let maxX = Math.max(...vertices.map(v => v.x));
+  let minY = Math.min(...vertices.map(v => v.y));
+  let maxY = Math.max(...vertices.map(v => v.y));
+  let diagonal = dist(minX, minY, maxX, maxY);
+  let centerX = (minX + maxX) / 2;
+  let centerY = (minY + maxY) / 2;
+
+  return { minX, maxX, minY, maxY, diagonal, centerX, centerY };
+}
+
+function clipLineToPolygon(x1, y1, x2, y2, vertices) {
+  let intersections = [];
+
+  for (let i = 0; i < vertices.length; i++) {
+    let v1 = vertices[i];
+    let v2 = vertices[(i + 1) % vertices.length];
+
+    let intersection = lineIntersection(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y);
+    if (intersection) {
+      intersections.push(intersection);
+    }
+  }
+
+  if (pointInPolygon(x1, y1, vertices)) {
+    intersections.push({ x: x1, y: y1 });
+  }
+  if (pointInPolygon(x2, y2, vertices)) {
+    intersections.push({ x: x2, y: y2 });
+  }
+
+  if (intersections.length < 2) return null;
+
+  let dx = x2 - x1;
+  let dy = y2 - y1;
+  intersections.sort((a, b) => {
+    let ta = dx !== 0 ? (a.x - x1) / dx : (a.y - y1) / dy;
+    let tb = dx !== 0 ? (b.x - x1) / dx : (b.y - y1) / dy;
+    return ta - tb;
+  });
+
+  let first = intersections[0];
+  let last = intersections[intersections.length - 1];
+
+  let midX = (first.x + last.x) / 2;
+  let midY = (first.y + last.y) / 2;
+  if (!pointInPolygon(midX, midY, vertices)) return null;
+
+  return { x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+}
+
+function lineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+  let denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(denom) < 0.0001) return null;
+
+  let t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+  let u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+    return {
+      x: x1 + t * (x2 - x1),
+      y: y1 + t * (y2 - y1)
+    };
+  }
+  return null;
+}
+
+function pointInPolygon(x, y, vertices) {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    let xi = vertices[i].x, yi = vertices[i].y;
+    let xj = vertices[j].x, yj = vertices[j].y;
+
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function fillHatch(vertices, density, angleDeg) {
+  let atoms = [];
+  let angle = angleDeg;
+
+  let { minX, maxX, minY, maxY, diagonal, centerX, centerY } = getBounds(vertices);
+  let rad = radians(angle);
+
+  for (let offset = -diagonal; offset <= diagonal; offset += density) {
+    let x1 = centerX + offset * cos(rad + HALF_PI) - diagonal * cos(rad);
+    let y1 = centerY + offset * sin(rad + HALF_PI) - diagonal * sin(rad);
+    let x2 = centerX + offset * cos(rad + HALF_PI) + diagonal * cos(rad);
+    let y2 = centerY + offset * sin(rad + HALF_PI) + diagonal * sin(rad);
+
+    let clipped = clipLineToPolygon(x1, y1, x2, y2, vertices);
+    if (clipped) {
+      atoms.push({ kind: 'line', x1: clipped.x1, y1: clipped.y1, x2: clipped.x2, y2: clipped.y2 });
+    }
+  }
+
+  return atoms;
+}
+
+// ─── passes ───
+
+function shadingOf(facet) {
+    // 0 = face-on (flat to camera), 1 = edge-on (steep)
+    return 1 - Math.abs(facet.normal.z);
+}
+
+function hatchAngleOf(facet) {
+    // level-line hatching: perpendicular to the depth gradient, wraps the form
+    return degrees(Math.atan2(facet.grad.b, facet.grad.a)) + 90;
+}
+
+function emitPasses() {
+    const P = state.passes, M = state.mesh, V = M.verts;
+
+    // mesh pass: iso-lines through visibility
+    for (const line of [...M.isoU, ...M.isoV]) {
+        for (let i = 0; i < line.length - 1; i++) {
+            const a = V[line[i]], b = V[line[i + 1]];
+            P.mesh.push(...visibilityClip({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, d1: a.depth, d2: b.depth }));
+        }
+    }
+
+    // hatch pass: slope-responsive, per facet
+    const mult = HATCH_MULT[ui.hatch];
+    if (mult > 0) {
+        for (const f of M.facets) {
+            const s = shadingOf(f);
+            if (s < 0.18) continue;                                  // near-flat: light stays empty
+            const quad = [V[f.i00], V[f.i10], V[f.i11], V[f.i01]].map(p => ({ x: p.px, y: p.py }));
+            const spacing = Math.min(40, Math.max(4, 3.2 / (Math.pow(s, 1.3) * mult)));
+            const angle = hatchAngleOf(f);
+            let atoms = fillHatch(quad, spacing, angle);
+            if (s > 0.75) atoms = atoms.concat(fillHatch(quad, spacing * 1.4, angle + 90)); // steep: cross-hatch
+            for (const a of atoms) {
+                P.hatch.push(...visibilityClip({ x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
+                    d1: depthOnFacet(f, a.x1, a.y1), d2: depthOnFacet(f, a.x2, a.y2) }));
+            }
+        }
+    }
+
+    // crease pass (red): the sharpest ridge through the same occlusion
+    const C = state.creasePolyline;
+    for (let i = 0; i < C.length - 1; i++) {
+        P.crease.push(...visibilityClip({ x1: C[i].x, y1: C[i].y, x2: C[i + 1].x, y2: C[i + 1].y,
+            d1: C[i].depth, d2: C[i + 1].depth }));
+    }
+}
+
+function wobble(x, y, seed) {
+    if (!ui.wobble) return { x, y };
+    return { x: x + (noise(x * 0.01, y * 0.01, seed) - 0.5) * 6,
+             y: y + (noise(x * 0.01 + 100, y * 0.01 + 100, seed) - 0.5) * 6 };
+}
+
+function drawSegment(seg, w, col) {
+    stroke(col); strokeWeight(w); noFill();
+    const i = seg.x1 * 0.01;
+    const p1 = wobble(seg.x1, seg.y1, i), p2 = wobble(seg.x2, seg.y2, i + 50);
+    line(p1.x, p1.y, p2.x, p2.y);
 }
