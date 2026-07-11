@@ -287,6 +287,9 @@ function setup() {
     setupControls();
     document.getElementById('randomizeBtn').onclick = randomizeAll;
     document.getElementById('refreshBtn').onclick   = () => regenerate(true);
+    document.getElementById('svgBtn').onclick = exportSVG;
+    document.getElementById('pngBtn').onclick = () => exportPNG(1);
+    document.getElementById('png4xBtn').onclick = () => exportPNG(4);
     regenerate(true);
     noLoop();
 }
@@ -486,6 +489,50 @@ function wobble(x, y, seed) {
     if (!ui.wobble) return { x, y };
     return { x: x + (noise(x * 0.01, y * 0.01, seed) - 0.5) * 6,
              y: y + (noise(x * 0.01 + 100, y * 0.01 + 100, seed) - 0.5) * 6 };
+}
+
+// ─── export ───
+
+function segToPath(seg) {
+    const i = seg.x1 * 0.01;
+    const p1 = wobble(seg.x1, seg.y1, i), p2 = wobble(seg.x2, seg.y2, i + 50);
+    return `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} L ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+}
+
+function svgPass(label, color, weight, paths, extraPaths = []) {
+    let g = `  <g inkscape:groupmode="layer" inkscape:label="${label}" fill="none" stroke="${color}" stroke-width="${weight}" stroke-linecap="round">\n`;
+    for (const p of [...extraPaths, ...paths]) g += `    <path d="${p}"/>\n`;
+    return g + `  </g>\n`;
+}
+
+function buildSVG() {
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${CS}" height="${CS}" viewBox="0 0 ${CS} ${CS}">\n  <rect width="100%" height="100%" fill="${PAPER}"/>\n`;
+    svg += svgPass('Border', INK, 0.9, [], [`M ${PAD} ${PAD} L ${CS - PAD} ${PAD} L ${CS - PAD} ${CS - PAD} L ${PAD} ${CS - PAD} Z`]);
+    svg += svgPass('Hatch', INK, 0.45, state.passes.hatch.map(segToPath));
+    svg += svgPass('Mesh', INK, 0.7, state.passes.mesh.map(segToPath));
+    svg += svgPass('Crease', RED, 1.0, state.passes.crease.map(segToPath));
+    const n = new Date();
+    const stamp = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')} ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+    svg += `  <g inkscape:groupmode="layer" inkscape:label="Signature"><text x="${PAD}" y="${CS - PAD + Math.round(CS * 0.022)}" font-family="Courier New, Courier, monospace" font-size="${Math.round(CS * 0.012)}" fill="${INK}">Fold · seed ${state.masterSeed} · ${state.folds.length} folds  ${stamp}</text></g>\n`;
+    return svg + `</svg>`;
+}
+
+function exportSVG() {
+    const blob = new Blob([buildSVG()], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `fold_${state.masterSeed}.svg`; a.click();
+    URL.revokeObjectURL(url);
+}
+
+function exportPNG(scale = 1) {
+    const name = `fold_${state.masterSeed}${scale > 1 ? '_' + scale + 'x' : ''}`;
+    if (scale > 1) {
+        pixelDensity(scale); renderAll(); saveCanvas(name, 'png');
+        pixelDensity(1); renderAll();
+    } else {
+        saveCanvas(name, 'png');
+    }
 }
 
 function drawSegment(seg, w, col) {
