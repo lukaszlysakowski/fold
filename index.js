@@ -248,11 +248,44 @@ function visibilityClip(seg) {
     return out;
 }
 
+// ─── controls ───
+
+function cycleCtrl(btnId, valId, options, labels, uiKey) {
+    document.getElementById(btnId).onclick = () => {
+        let i = (options.indexOf(ui[uiKey]) + 1) % options.length;
+        ui[uiKey] = options[i];
+        document.getElementById(valId).textContent = labels ? labels[i] : String(options[i]);
+        regenerate(false);
+    };
+}
+
+const CONTROL_DEFS = [
+    ['foldsBtn',     'foldsVal',     ['random','2','3','4','5'], null, 'folds'],
+    ['characterBtn', 'characterVal', [0,1,2], ['Soft','Mixed','Sharp'], 'character'],
+    ['amplitudeBtn', 'amplitudeVal', [0,1,2], ['Gentle','Medium','Deep'], 'amplitude'],
+    ['meshBtn',      'meshVal',      [0,1,2], ['Coarse','Medium','Fine'], 'mesh'],
+    ['hatchBtn',     'hatchVal',     [0,1,2,3], ['Off','Light','Medium','Dense'], 'hatch'],
+    ['viewBtn',      'viewVal',      ['random','low','oblique','high'], null, 'view'],
+    ['wobbleBtn',    'wobbleVal',    [false,true], ['off','on'], 'wobble']
+];
+
+function setupControls() { for (const d of CONTROL_DEFS) cycleCtrl(...d); }
+
+function randomizeAll() {
+    for (const [, valId, options, labels, uiKey] of CONTROL_DEFS) {
+        const i = Math.floor(Math.random() * options.length);
+        ui[uiKey] = options[i];
+        document.getElementById(valId).textContent = labels ? labels[i] : String(options[i]);
+    }
+    regenerate(true);
+}
+
 function setup() {
     let c = createCanvas(CS, CS);
     c.parent('canvas-container');
     pixelDensity(1);
-    document.getElementById('randomizeBtn').onclick = () => regenerate(true); // Task 6 replaces
+    setupControls();
+    document.getElementById('randomizeBtn').onclick = randomizeAll;
     document.getElementById('refreshBtn').onclick   = () => regenerate(true);
     regenerate(true);
     noLoop();
